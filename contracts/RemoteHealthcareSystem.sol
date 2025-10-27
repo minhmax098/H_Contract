@@ -14,13 +14,7 @@ contract RemoteHealthcareSystem {
         Hospital = msg.sender;
     }
 
-    //******************************************************//
-    //******************************************************//
-    //                                                      //
-    //          Paitent Register Smart Contract             //
-    //                                                      //
-    //******************************************************//
-    //******************************************************//
+    // Paitent Register Smart Contract
 
     uint    public NumberOfPatients;
     mapping (address => bool)   public Patient_Account_IsRegistered;
@@ -91,13 +85,7 @@ contract RemoteHealthcareSystem {
         return (patients[_address].Patient_Account,patients[_address].Patient_ID, patients[_address].Patient_Name, patients[_address].Patient_Age, patients[_address].Patient_Address);
     }
 
-    //******************************************************//
-    //******************************************************//
-    //                                                      //
-    //           Doctor Register Smart Contract             //
-    //                                                      //
-    //******************************************************//
-    //******************************************************//
+    // Doctor Register Smart Contract
 
     uint    public NumberOfDoctors;
     mapping (address => bool) public Doctor_Account_IsRegistered;
@@ -161,13 +149,7 @@ contract RemoteHealthcareSystem {
         return (doctors[_address].Doctor_Account,doctors[_address].Doctor_ID, doctors[_address].Doctor_Name, doctors[_address].Doctor_Age, doctors[_address].Doctor_Address);
     }
 
-    //******************************************************//
-    //******************************************************//
-    //                                                      //
-    //    Authorized Patient for Doctor Smart Contract      //
-    //                                                      //
-    //******************************************************//
-    //******************************************************//
+    // Authorized Patient for Doctor Smart Contract
 
     struct ListPatientForDoctor {
         mapping (address => bool)  Patient_Account_IsAuthorized;
@@ -200,13 +182,7 @@ contract RemoteHealthcareSystem {
         return (listpatientfordoctors[_Doctor_address].Patient_Account_IsAuthorized[_Patient_address]);
     }
 
-    //******************************************************//
-    //******************************************************//
-    //                                                      //
-    //          Patient Monitoring Smart Contract           //
-    //                                                      //
-    //******************************************************//
-    //******************************************************//
+    // Patient Monitoring Smart Contract
 
     modifier onlyPatient() {
         require(Patient_Account_IsRegistered[msg.sender] == true);
