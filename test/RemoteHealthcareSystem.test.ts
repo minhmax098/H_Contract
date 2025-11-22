@@ -1,9 +1,10 @@
 import { expect } from "chai";
-import hre from "hardhat";
-
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const hre = require("hardhat");
 const { ethers } = hre;
 
-describe.skip("RemoteHealthcareSystem", function () {
+describe("RemoteHealthcareSystem", function () {
   async function deployFixture() {
     const [hospital, patient1, patient2, doctor1, doctor2, stranger] = await ethers.getSigners();
 
@@ -194,7 +195,7 @@ describe.skip("RemoteHealthcareSystem", function () {
   });
 
   describe("Patient monitoring", function () {
-    it("only registered patient can Set_Parameters and access controls on Get_Parameters", async function () {
+    it("only registered patient can Set_Parameters(string) and access controls on Get_Parameters -> string", async function () {
       const { contract, patient1, patient2, doctor1, hospital, stranger } = await deployFixture();
 
       await contract.Add_Patient(patient1.address, "Alice", 30, "123 Main");
@@ -202,12 +203,14 @@ describe.skip("RemoteHealthcareSystem", function () {
       await contract.Add_Doctor(doctor1.address, "Dr Who", 40, "Clinic");
 
       // Unregistered cannot call Set_Parameters
-      await expect(contract.connect(stranger).Set_Parameters(70, 120, 37)).to.be.reverted;
+      await expect(contract.connect(stranger).Set_Parameters("hb=70;bp=120;tmp=37"))
+        .to.be.reverted;
 
       // Registered patient can Set_Parameters and emits event
-      await expect(contract.connect(patient1).Set_Parameters(72, 118, 36))
+      const payload = "{\"hb\":72,\"bp\":118,\"tmp\":36}";
+      await expect(contract.connect(patient1).Set_Parameters(payload))
         .to.emit(contract, "Sensor_Data_Collected")
-        .withArgs(patient1.address, 72, 118, 36);
+        .withArgs(patient1.address, payload);
 
       // Access control for Get_Parameters
       // patient self
@@ -221,10 +224,7 @@ describe.skip("RemoteHealthcareSystem", function () {
       await expect(contract.connect(doctor1).Get_Parameters(patient1.address)).to.not.be.reverted;
 
       const params = await contract.Get_Parameters(patient1.address);
-      expect(params[0]).to.equal(patient1.address);
-      expect(params[1]).to.equal(72);
-      expect(params[2]).to.equal(118);
-      expect(params[3]).to.equal(36);
+      expect(params).to.equal(payload);
 
       // other patient cannot read patient1 data
       await expect(contract.connect(patient2).Get_Parameters(patient1.address)).to.be.reverted;

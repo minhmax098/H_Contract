@@ -189,35 +189,31 @@ contract RemoteHealthcareSystem {
         _;
     }
 
-    event Sensor_Data_Collected (address _Patient_Account, uint8 _Patient_HeartBeat,uint8 _Patient_BloodPressure,uint8 _Patient_Temperature);
+    event Sensor_Data_Collected (address _Patient_Account, string _Parameters);
     event Alert_Patient_HeartBeat(address _address);
     event Alert_Patient_BloodPressure(address _address);
     event Alert_Patient_Temperature(address _address);
 
     struct Patient_Monitoring {
         address     Patient_Account;
-        uint8       Patient_HeartBeat;
-        uint8       Patient_BloodPressure;
-        uint8       Patient_Temperature;
+        string      Parameters; // free-form parameters payload (e.g., JSON or CSV)
     }
 
     mapping (address => Patient_Monitoring) patients_monitoring;
 
-    function Set_Parameters(uint8 _Patient_HeartBeat,uint8 _Patient_BloodPressure,uint8 _Patient_Temperature) onlyPatient public{
+    function Set_Parameters(string memory _Parameters) onlyPatient public{
 
         Patient_Monitoring storage patient_monitoring = patients_monitoring[msg.sender];
-        patient_monitoring.Patient_Account          = msg.sender;
-        patient_monitoring.Patient_HeartBeat        = _Patient_HeartBeat;
-        patient_monitoring.Patient_BloodPressure    = _Patient_BloodPressure;
-        patient_monitoring.Patient_Temperature      = _Patient_Temperature;
-        emit Sensor_Data_Collected (msg.sender, _Patient_HeartBeat, _Patient_BloodPressure,_Patient_Temperature);
+        patient_monitoring.Patient_Account  = msg.sender;
+        patient_monitoring.Parameters       = _Parameters;
+        emit Sensor_Data_Collected (msg.sender, _Parameters);
 
     }
-    function Get_Parameters(address _address) view public returns (address, uint8, uint8, uint8) {
+    function Get_Parameters(address _address) view public returns (string memory) {
 
         require((msg.sender == Hospital)||(listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_address]==true)|| (msg.sender == _address));
 
-        return (patients_monitoring[_address].Patient_Account,patients_monitoring[_address].Patient_HeartBeat, patients_monitoring[_address].Patient_BloodPressure, patients_monitoring[_address].Patient_Temperature);
+        return (patients_monitoring[_address].Parameters);
     }
 
 }
