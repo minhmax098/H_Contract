@@ -216,4 +216,54 @@ contract RemoteHealthcareSystem {
         return (patients_monitoring[_address].Parameters);
     }
 
+    // ---------------------------------------------------------------
+    // HealthDataStorage - Lưu trữ dữ liệu sức khỏe với ID giả danh R_i
+    // ---------------------------------------------------------------
+    // CHÚ Ý BẢO MẬT: Tuyệt đối KHÔNG lưu trữ Root Seed (R_P) trong Smart Contract.
+
+    struct HealthData {
+        uint256 heartBeat;
+        uint256 bloodPressure;
+        uint256 temperature;
+        uint256 timestamp; // thời điểm dữ liệu được ghi
+    }
+
+    // Key: Pseudonym (R_i - bytes32), Value: dữ liệu cảm biến
+    mapping(bytes32 => HealthData) public dataRecords;
+
+    // Key: địa chỉ ví thật của bệnh nhân, Value: ID giả danh mới nhất đã sử dụng
+    mapping(address => bytes32) public latestAnonId;
+
+    // Gửi dữ liệu. Gọi bởi Patient (hoặc bất kỳ tài khoản gửi giao dịch). Không dùng onlyOwner/onlyHospital.
+    // Điều này tránh lỗi revert do hạn chế quyền không cần thiết.
+    function setParameters(
+        bytes32 _anonId,
+        uint256 _hb,
+        uint256 _bp,
+        uint256 _temp
+    ) public {
+        // 1. Lưu trữ dữ liệu với ID giả danh
+        dataRecords[_anonId] = HealthData({
+            heartBeat: _hb,
+            bloodPressure: _bp,
+            temperature: _temp,
+            timestamp: block.timestamp
+        });
+
+        // 2. Cập nhật ID giả danh mới nhất cho địa chỉ ví thật (người gửi giao dịch)
+        latestAnonId[msg.sender] = _anonId;
+    }
+
+    // Truy vấn dữ liệu gần nhất theo địa chỉ ví bệnh nhân.
+    // Trả về: (anonId, heartBeat, bloodPressure, temperature)
+    function getParameters(address _patientAccount)
+        public
+        view
+        returns (bytes32, uint256, uint256, uint256)
+    {
+        bytes32 anonId = latestAnonId[_patientAccount];
+        HealthData storage data = dataRecords[anonId];
+        return (anonId, data.heartBeat, data.bloodPressure, data.temperature);
+    }
+
 }
