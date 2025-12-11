@@ -219,6 +219,7 @@ contract RemoteHealthcareSystem {
 
     // HealthDataStorage - Storing healthcare with fake ID R_i
     // Do not store Root Seed (R_P) in Smart Contract.
+
     struct HealthData {
         uint256 heartBeat;
         uint256 bloodPressure;
@@ -250,15 +251,42 @@ contract RemoteHealthcareSystem {
         latestAnonId[msg.sender] = _anonId;
     }
 
-    // Query the most patient data by patient wallet address
+    // Query the most patient data by patient wallet address (Dữ liệu GẦN NHẤT)
     // Return: (anonId, heartBeat, bloodPressure, temperature)
     function getParameters(address _patientAccount)
         public
         view
         returns (bytes32, uint256, uint256, uint256)
     {
+        // Only the hospital, an authorized doctor, or the patient themselves can call.
+        require(
+            (msg.sender == Hospital) || 
+            (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_patientAccount] == true) || 
+            (msg.sender == _patientAccount),
+            "Unauthorized access to patient data."
+        );
+
         bytes32 anonId = latestAnonId[_patientAccount];
         HealthData storage data = dataRecords[anonId];
         return (anonId, data.heartBeat, data.bloodPressure, data.temperature);
+    }
+
+    // function to query history data using AnonID
+    // Query historical data using Pseudonym (R_i). Backend Doctor will call this function.
+    function getDataByAnonId(bytes32 _anonId)
+        public
+        view
+        returns (uint256, uint256, uint256, uint256)
+    {
+        // Only registered hospitals or doctors are allowed to call.
+        require(
+            (msg.sender == Hospital) || 
+            (Doctor_Account_IsRegistered[msg.sender] == true),
+            "Only Hospital or registered Doctor can query historical data by AnonID."
+        );
+        
+        HealthData storage data = dataRecords[_anonId];
+        // Return: HB, BP, Temp, Timestamp
+        return (data.heartBeat, data.bloodPressure, data.temperature, data.timestamp);
     }
 }
