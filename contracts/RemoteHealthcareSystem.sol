@@ -238,9 +238,10 @@ contract RemoteHealthcareSystem {
         bytes32 _anonId,
         uint256 _hb,
         uint256 _bp,
-        uint256 _temp
+        uint256 _temp,
+        address _patientAddress
     ) public {
-        // 1. Storing data with fake ID
+        // 1. Storing data with fake ID, save HealthData into dataRecords, use R_i as the key
         dataRecords[_anonId] = HealthData({
             heartBeat: _hb,
             bloodPressure: _bp,
@@ -248,10 +249,10 @@ contract RemoteHealthcareSystem {
             timestamp: block.timestamp
         });
         // 2. Updat the latest spoofing ID for the real wallet address (the sender of the transaction)
-        latestAnonId[msg.sender] = _anonId;
+        latestAnonId[_patientAddress] = _anonId;
     }
 
-    // Query the most patient data by patient wallet address (Dữ liệu GẦN NHẤT)
+    // Query the most patient data by patient wallet address
     // Return: (anonId, heartBeat, bloodPressure, temperature)
     function getParameters(address _patientAccount)
         public
