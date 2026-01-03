@@ -220,74 +220,178 @@ contract RemoteHealthcareSystem {
     // HealthDataStorage - Storing healthcare with fake ID R_i
     // Do not store Root Seed (R_P) in Smart Contract.
 
-    struct HealthData {
-        uint256 heartBeat;
-        uint256 bloodPressure;
-        uint256 temperature;
-        uint256 timestamp; // time data is recorded
-    }
+    // struct HealthData {
+    //     uint256 heartBeat;
+    //     uint256 bloodPressure;
+    //     uint256 temperature;
+    //     uint256 timestamp; // time data is recorded
+    // }
 
     // Key: Pseudonym (R_i - bytes32), Value: sensor data
-    mapping(bytes32 => HealthData) public dataRecords;
+    // mapping(bytes32 => HealthData) public dataRecords;
 
     // Key: patient's real wallet address, Value: latest spoofing ID used
+    // mapping(address => bytes32) public latestAnonId;
+
+    // ===============================
+    // IPFS-based Storage (Minimal On-chain)
+    // ===============================
+
+    struct MinimalRecord {
+        string cid;         // IPFS CID (bafy...)
+        uint256 timestamp;  // client timestamp
+        bytes signature;    // patient signature
+    }
+
+    // Key: Pseudonym (R_i - bytes32), Value: minimal record
+    mapping(bytes32 => MinimalRecord) public dataRecords;
+
+    // Key: patient's wallet => latest pseudonym ID used
     mapping(address => bytes32) public latestAnonId;
 
+    event Record_Stored(address indexed patient, bytes32 indexed anonId, string cid, uint256 timestamp);
+
+    function _toEthSignedMessageHash(bytes32 hash) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
+    }
+
+    function _recoverSigner(bytes32 ethSignedHash, bytes memory sig) internal pure returns (address) {
+        require(sig.length == 65, "Invalid signature length");
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        assembly {
+            r := mload(add(sig, 0x20))
+            s := mload(add(sig, 0x40))
+            v := byte(0, mload(add(sig, 0x60)))
+        }
+
+        if (v < 27) v += 27;
+        require(v == 27 || v == 28, "Invalid v");
+
+        return ecrecover(ethSignedHash, v, r, s);
+    }
+
+
     // Sendata, called by Patient. Not use onlyOwner/onlyHospital.
+    // function setParameters(
+    //     bytes32 _anonId,
+    //     uint256 _hb,
+    //     uint256 _bp,
+    //     uint256 _temp,
+    //     address _patientAddress
+    // ) public {
+    //     // 1. Storing data with fake ID, save HealthData into dataRecords, use R_i as the key
+    //     dataRecords[_anonId] = HealthData({
+    //         heartBeat: _hb,
+    //         bloodPressure: _bp,
+    //         temperature: _temp,
+    //         timestamp: block.timestamp
+    //     });
+    //     // 2. Updat the latest spoofing ID for the real wallet address (the sender of the transaction)
+    //     latestAnonId[_patientAddress] = _anonId;
+    // }
+
     function setParameters(
         bytes32 _anonId,
-        uint256 _hb,
-        uint256 _bp,
-        uint256 _temp,
-        address _patientAddress
-    ) public {
-        // 1. Storing data with fake ID, save HealthData into dataRecords, use R_i as the key
-        dataRecords[_anonId] = HealthData({
-            heartBeat: _hb,
-            bloodPressure: _bp,
-            temperature: _temp,
-            timestamp: block.timestamp
+        string calldata _cid,
+        uint256 _timestamp,
+        bytes calldata _signature
+    ) external onlyPatient {
+        require(bytes(_cid).length > 0, "Empty CID");
+
+        // domain separation (chống replay)
+        bytes32 cidDigest = keccak256(bytes(_cid));
+        bytes32 msgHash = keccak256(
+            abi.encodePacked(_anonId, cidDigest, _timestamp, address(this), block.chainid)
+        );
+
+        bytes32 ethSigned = _toEthSignedMessageHash(msgHash);
+        address signer = _recoverSigner(ethSigned, _signature);
+        require(signer == msg.sender, "Bad signature");
+
+        dataRecords[_anonId] = MinimalRecord({
+            cid: _cid,
+            timestamp: _timestamp,
+            signature: _signature
         });
-        // 2. Updat the latest spoofing ID for the real wallet address (the sender of the transaction)
-        latestAnonId[_patientAddress] = _anonId;
+
+        latestAnonId[msg.sender] = _anonId;
+
+        emit Record_Stored(msg.sender, _anonId, _cid, _timestamp);
     }
 
     // Query the most patient data by patient wallet address
     // Return: (anonId, heartBeat, bloodPressure, temperature)
+    // function getParameters(address _patientAccount)
+    //     public
+    //     view
+    //     returns (bytes32, uint256, uint256, uint256)
+    // {
+    //     // Only the hospital, an authorized doctor, or the patient themselves can call.
+    //     require(
+    //         (msg.sender == Hospital) || 
+    //         (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_patientAccount] == true) || 
+    //         (msg.sender == _patientAccount),
+    //         "Unauthorized access to patient data."
+    //     );
+
+    //     bytes32 anonId = latestAnonId[_patientAccount];
+    //     HealthData storage data = dataRecords[anonId];
+    //     return (anonId, data.heartBeat, data.bloodPressure, data.temperature);
+    // }
+
     function getParameters(address _patientAccount)
         public
         view
-        returns (bytes32, uint256, uint256, uint256)
+        returns (bytes32, string memory, uint256)
     {
-        // Only the hospital, an authorized doctor, or the patient themselves can call.
         require(
-            (msg.sender == Hospital) || 
-            (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_patientAccount] == true) || 
+            (msg.sender == Hospital) ||
+            (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_patientAccount] == true) ||
             (msg.sender == _patientAccount),
-            "Unauthorized access to patient data."
+            "Unauthorized access."
         );
 
         bytes32 anonId = latestAnonId[_patientAccount];
-        HealthData storage data = dataRecords[anonId];
-        return (anonId, data.heartBeat, data.bloodPressure, data.temperature);
+        MinimalRecord storage r = dataRecords[anonId];
+        return (anonId, r.cid, r.timestamp);
     }
+
 
     // function to query history data using AnonID
     // Query historical data using Pseudonym (R_i). Backend Doctor will call this function.
+    // function getDataByAnonId(bytes32 _anonId)
+    //     public
+    //     view
+    //     returns (uint256, uint256, uint256, uint256)
+    // {
+    //     // Only registered hospitals or doctors are allowed to call.
+    //     require(
+    //         (msg.sender == Hospital) || 
+    //         (Doctor_Account_IsRegistered[msg.sender] == true),
+    //         "Only Hospital or registered Doctor can query historical data by AnonID."
+    //     );
+        
+    //     HealthData storage data = dataRecords[_anonId];
+    //     // Return: HB, BP, Temp, Timestamp
+    //     return (data.heartBeat, data.bloodPressure, data.temperature, data.timestamp);
+    // }
+
     function getDataByAnonId(bytes32 _anonId)
         public
         view
-        returns (uint256, uint256, uint256, uint256)
+        returns (string memory, uint256, bytes memory)
     {
-        // Only registered hospitals or doctors are allowed to call.
         require(
-            (msg.sender == Hospital) || 
+            (msg.sender == Hospital) ||
             (Doctor_Account_IsRegistered[msg.sender] == true),
-            "Only Hospital or registered Doctor can query historical data by AnonID."
+            "Only Hospital or registered Doctor."
         );
-        
-        HealthData storage data = dataRecords[_anonId];
-        // Return: HB, BP, Temp, Timestamp
-        return (data.heartBeat, data.bloodPressure, data.temperature, data.timestamp);
+
+        MinimalRecord storage r = dataRecords[_anonId];
+        return (r.cid, r.timestamp, r.signature);
     }
 }
