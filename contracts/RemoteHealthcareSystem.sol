@@ -217,26 +217,7 @@ contract RemoteHealthcareSystem {
         return (patients_monitoring[_address].Parameters);
     }
 
-    // HealthDataStorage - Storing healthcare with fake ID R_i
-    // Do not store Root Seed (R_P) in Smart Contract.
-
-    // struct HealthData {
-    //     uint256 heartBeat;
-    //     uint256 bloodPressure;
-    //     uint256 temperature;
-    //     uint256 timestamp; // time data is recorded
-    // }
-
-    // Key: Pseudonym (R_i - bytes32), Value: sensor data
-    // mapping(bytes32 => HealthData) public dataRecords;
-
-    // Key: patient's real wallet address, Value: latest spoofing ID used
-    // mapping(address => bytes32) public latestAnonId;
-
-    // ===============================
     // IPFS-based Storage (Minimal On-chain)
-    // ===============================
-
     struct MinimalRecord {
         string cid;         // IPFS CID (bafy...)
         uint256 timestamp;  // client timestamp
@@ -274,26 +255,7 @@ contract RemoteHealthcareSystem {
         return ecrecover(ethSignedHash, v, r, s);
     }
 
-
     // Sendata, called by Patient. Not use onlyOwner/onlyHospital.
-    // function setParameters(
-    //     bytes32 _anonId,
-    //     uint256 _hb,
-    //     uint256 _bp,
-    //     uint256 _temp,
-    //     address _patientAddress
-    // ) public {
-    //     // 1. Storing data with fake ID, save HealthData into dataRecords, use R_i as the key
-    //     dataRecords[_anonId] = HealthData({
-    //         heartBeat: _hb,
-    //         bloodPressure: _bp,
-    //         temperature: _temp,
-    //         timestamp: block.timestamp
-    //     });
-    //     // 2. Updat the latest spoofing ID for the real wallet address (the sender of the transaction)
-    //     latestAnonId[_patientAddress] = _anonId;
-    // }
-
     function setParameters(
         bytes32 _anonId,
         string calldata _cid,
@@ -325,24 +287,6 @@ contract RemoteHealthcareSystem {
 
     // Query the most patient data by patient wallet address
     // Return: (anonId, heartBeat, bloodPressure, temperature)
-    // function getParameters(address _patientAccount)
-    //     public
-    //     view
-    //     returns (bytes32, uint256, uint256, uint256)
-    // {
-    //     // Only the hospital, an authorized doctor, or the patient themselves can call.
-    //     require(
-    //         (msg.sender == Hospital) || 
-    //         (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_patientAccount] == true) || 
-    //         (msg.sender == _patientAccount),
-    //         "Unauthorized access to patient data."
-    //     );
-
-    //     bytes32 anonId = latestAnonId[_patientAccount];
-    //     HealthData storage data = dataRecords[anonId];
-    //     return (anonId, data.heartBeat, data.bloodPressure, data.temperature);
-    // }
-
     function getParameters(address _patientAccount)
         public
         view
@@ -363,23 +307,6 @@ contract RemoteHealthcareSystem {
 
     // function to query history data using AnonID
     // Query historical data using Pseudonym (R_i). Backend Doctor will call this function.
-    // function getDataByAnonId(bytes32 _anonId)
-    //     public
-    //     view
-    //     returns (uint256, uint256, uint256, uint256)
-    // {
-    //     // Only registered hospitals or doctors are allowed to call.
-    //     require(
-    //         (msg.sender == Hospital) || 
-    //         (Doctor_Account_IsRegistered[msg.sender] == true),
-    //         "Only Hospital or registered Doctor can query historical data by AnonID."
-    //     );
-        
-    //     HealthData storage data = dataRecords[_anonId];
-    //     // Return: HB, BP, Temp, Timestamp
-    //     return (data.heartBeat, data.bloodPressure, data.temperature, data.timestamp);
-    // }
-
     function getDataByAnonId(bytes32 _anonId)
         public
         view
