@@ -182,11 +182,27 @@ contract RemoteHealthcareSystem {
         return (listpatientfordoctors[_Doctor_address].Patient_Account_IsAuthorized[_Patient_address]);
     }
 
+    // New: Patient self authorize / revoke doctor (RBAC)
+    event Doctor_Access_Updated(address indexed patient, address indexed doctor, bool allowed);
+
     // Patient Monitoring Smart Contract
 
     modifier onlyPatient() {
         require(Patient_Account_IsRegistered[msg.sender] == true);
         _;
+    }
+
+    function Authorize_Doctor(address doctor, bool allowed) external onlyPatient {
+        require(Doctor_Account_IsRegistered[doctor] == true, "Doctor not registered");
+        listpatientfordoctors[doctor].Patient_Account_IsAuthorized[msg.sender] = allowed;
+        emit Doctor_Access_Updated(msg.sender, doctor, allowed); 
+    }
+
+    // helper view: can check
+    function IsDoctorAuthorizedForPatient(address doctor, address patient) external view returns (bool) {
+        if (!Doctor_Account_IsRegistered[doctor]) return false;
+        if (!Patient_Account_IsRegistered[patient]) return false;
+        return listpatientfordoctors[doctor].Patient_Account_IsAuthorized[patient];
     }
 
     event Sensor_Data_Collected (address _Patient_Account, string _Parameters);
@@ -219,6 +235,7 @@ contract RemoteHealthcareSystem {
 
     // IPFS-based Storage (Minimal On-chain)
     struct MinimalRecord {
+        address patient;    // owner of record
         string cid;         // IPFS CID (bafy...)
         uint256 timestamp;  // client timestamp
         bytes signature;    // patient signature
@@ -275,6 +292,7 @@ contract RemoteHealthcareSystem {
         require(signer == msg.sender, "Bad signature");
 
         dataRecords[_anonId] = MinimalRecord({
+            patient: msg.sender,
             cid: _cid,
             timestamp: _timestamp,
             signature: _signature
@@ -307,18 +325,32 @@ contract RemoteHealthcareSystem {
 
     // function to query history data using AnonID
     // Query historical data using Pseudonym (R_i). Backend Doctor will call this function.
+    // RBAC: RBAC is "truly" historically accurate according to anonId.
     function getDataByAnonId(bytes32 _anonId)
         public
         view
         returns (string memory, uint256, bytes memory)
     {
-        require(
-            (msg.sender == Hospital) ||
-            (Doctor_Account_IsRegistered[msg.sender] == true),
-            "Only Hospital or registered Doctor."
-        );
-
         MinimalRecord storage r = dataRecords[_anonId];
+        require(r.timestamp != 0, "Record not found. No record");
+        
+        // Hospital can watch all
+        if (msg.sender == Hospital) {
+            return (r.cid, r.timestamp, r.signature);
+        }
+
+        // Patient watch record of self only
+        if (msg.sender == r.patient) {
+            return (r.cid, r.timestamp, r.signature);
+        }
+
+        // Doctor have to register + was authorized by patient at that time
+
+        require(Doctor_Account_IsRegistered[msg.sender] == true, "Only Hospital/Doctor/Patient");
+        require(
+            listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[r.patient] == true,
+            "Doctor not authorized for this patient."
+        );
         return (r.cid, r.timestamp, r.signature);
     }
 }
