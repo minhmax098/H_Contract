@@ -250,6 +250,8 @@ contract RemoteHealthcareSystem {
     // Key: patient's wallet => latest pseudonym ID used
     mapping(address => bytes32) public latestAnonId;
 
+    mapping(address => uint256) public nonces;
+
     event Record_Stored(address indexed patient, bytes32 indexed anonId, string cid, uint256 timestamp);
 
     function _toEthSignedMessageHash(bytes32 hash) internal pure returns (bytes32) {
@@ -292,6 +294,42 @@ contract RemoteHealthcareSystem {
         latestAnonId[msg.sender] = _anonId;
 
         emit Record_Stored(msg.sender, _anonId, _cid, _timestamp);
+    }
+
+    function setParametersMeta(
+        address patient,
+        bytes32 _anonId,
+        string calldata _cid,
+        uint256 _timestamp,
+        uint256 nonce,
+        bytes calldata _signature
+    ) external {
+        if (patients[patient].Patient_ID == 0) revert NotRegistered();
+        if (bytes(_cid).length == 0) revert EmptyCID();
+        if (nonce != nonces[patient]) revert InvalidSignature(); // hoặc custom error InvalidNonce()
+
+        bytes32 cidDigest = keccak256(bytes(_cid));
+        bytes32 msgHash = keccak256(
+            abi.encodePacked(patient, _anonId, cidDigest, _timestamp, nonce, address(this), block.chainid)
+        );
+
+        bytes32 ethSigned = _toEthSignedMessageHash(msgHash);
+        address signer = _recoverSigner(ethSigned, _signature);
+        if (signer != patient) revert InvalidSignature();
+
+        // consume nonce
+        unchecked { nonces[patient] = nonce + 1; }
+
+        dataRecords[_anonId] = MinimalRecord({
+            patient: patient,
+            cid: _cid,
+            timestamp: _timestamp,
+            signature: _signature
+        });
+
+        latestAnonId[patient] = _anonId;
+
+        emit Record_Stored(patient, _anonId, _cid, _timestamp);
     }
 
     // Query the most patient data by patient wallet address
