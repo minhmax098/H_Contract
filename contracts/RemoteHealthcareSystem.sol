@@ -244,6 +244,23 @@ contract RemoteHealthcareSystem {
         bytes signature; // patient signature
     }
 
+    // Gas-min record: fixed-size only
+    struct RecordV2 {
+        address patient;      // 20 bytes
+        uint64  timestamp;    // 8 bytes
+        uint64  nonce;        // 8 bytes  => pack chung 1 slot với address + padding
+        bytes32 cidDigest;    // 32 bytes (slot riêng)
+    }
+
+    // anonId => record
+    mapping(bytes32 => RecordV2) public dataRecordsV2;
+
+    // patient => latest anonId
+    mapping(address => bytes32) public latestAnonIdV2;
+
+    event Record_Stored_V2(address indexed patient, bytes32 indexed anonId, bytes32 cidDigest, uint64 timestamp, uint64 nonce);
+
+
     // Key: Pseudonym (R_i - bytes32), Value: minimal record
     mapping(bytes32 => MinimalRecord) public dataRecords;
 
@@ -332,6 +349,41 @@ contract RemoteHealthcareSystem {
         emit Record_Stored(patient, _anonId, _cid, _timestamp);
     }
 
+    function setParametersMetaV2(
+        address patient,
+        bytes32 anonId,
+        bytes32 cidDigest,
+        uint64 timestamp,
+        uint64 nonce,
+        bytes calldata sig
+    ) external {
+        if (patients[patient].Patient_ID == 0) revert NotRegistered();
+        if (cidDigest == bytes32(0)) revert EmptyCID();
+        if (nonce != uint64(nonces[patient])) revert InvalidSignature(); // bạn có thể tạo custom error InvalidNonce()
+
+        // msgHash = keccak256(abi.encodePacked(patient, anonId, cidDigest, timestamp, nonce, address(this), chainid))
+        bytes32 msgHash = keccak256(
+            abi.encodePacked(patient, anonId, cidDigest, timestamp, nonce, address(this), block.chainid)
+        );
+
+        address signer = _recoverSigner(_toEthSignedMessageHash(msgHash), sig);
+        if (signer != patient) revert InvalidSignature();
+
+        // consume nonce
+        unchecked { nonces[patient] = uint256(nonce) + 1; }
+
+        // store fixed-size only
+        dataRecordsV2[anonId] = RecordV2({
+            patient: patient,
+            timestamp: timestamp,
+            nonce: nonce,
+            cidDigest: cidDigest
+        });
+        latestAnonIdV2[patient] = anonId;
+
+        emit Record_Stored_V2(patient, anonId, cidDigest, timestamp, nonce);
+    }
+
     // Query the most patient data by patient wallet address
     // Return: (anonId, heartBeat, bloodPressure, temperature)
     function getParameters(address _patientAccount) external view returns (bytes32, string memory, uint256) {
@@ -367,4 +419,14 @@ contract RemoteHealthcareSystem {
 
         return (r.cid, r.timestamp, r.signature);
     }
+
+    function getParametersV2(address patient) external view returns (bytes32 anonId, bytes32 cidDigest, uint64 timestamp, uint64 nonce) {
+        if (!((msg.sender == Hospital) || (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[patient]) || (msg.sender == patient))) {
+            revert Unauthorized();
+        }
+        anonId = latestAnonIdV2[patient];
+        RecordV2 storage r = dataRecordsV2[anonId];
+        return (anonId, r.cidDigest, r.timestamp, r.nonce);
+    }
+
 }
