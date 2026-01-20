@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "hardhat test solidity",
+    "test": "mocha test/RemoteHealthcareSystem.test.ts --node-option import=tsx",
+    "test:gas": "node test/RemoteHealthcareSystem.gas.test.cjs",
     "deploy": "npx hardhat ignition deploy ignition/modules/RemoteHealthcareSystem.ts --network bsctestnet",
     "verify": ""
   },

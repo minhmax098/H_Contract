@@ -17,17 +17,30 @@ This example project includes:
 
 ### Running Tests
 
-To run all the tests in the project, execute the following command:
+To run the standard integration tests:
+
+```shell
+npm test
+```
+
+To run the gas analysis tests:
+
+1.  In one terminal, start a local Hardhat node:
+    ```shell
+    npx hardhat node
+    ```
+2.  In another terminal, run the gas analysis script:
+    ```shell
+    npm run test:gas
+    ```
+    *Note: Ensure the contract is compiled first (`npx hardhat compile`).*
+
+### Hardhat 3 Beta (Legacy Instructions)
+
+To run the tests using Hardhat 3 Beta commands:
 
 ```shell
 npx hardhat test
-```
-
-You can also selectively run the Solidity or `mocha` tests:
-
-```shell
-npx hardhat test solidity
-npx hardhat test mocha
 ```
 
 ### Make a deployment to Sepolia

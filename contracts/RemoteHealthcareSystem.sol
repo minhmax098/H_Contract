@@ -3,10 +3,20 @@ pragma solidity ^0.8.28;
 
 contract RemoteHealthcareSystem {
 
+    // Custom errors (saves gas vs require strings)
+    error Unauthorized();
+    error InvalidAddress();
+    error AlreadyRegistered();
+    error NotRegistered();
+    error EmptyCID();
+    error InvalidSignatureLength();
+    error InvalidSignature();
+    error RecordNotFound();
+
     address public Hospital;
 
     modifier onlyHospital() {
-        require(msg.sender == Hospital);
+        if (msg.sender != Hospital) revert Unauthorized();
         _;
     }
 
@@ -15,171 +25,168 @@ contract RemoteHealthcareSystem {
     }
 
     // Paitent Register Smart Contract
+    uint128 public NumberOfPatients;
+    uint128 public Patient_Id;
 
-    uint    public NumberOfPatients;
-    mapping (address => bool)   public Patient_Account_IsRegistered;
-    uint    public Patient_Id;
-
-    event Patient_Added(address _address,uint _Patient_ID,string _Patient_Name, uint8 _Patient_Age,string _Patient_Address);
-    event Patient_Modified(address _address,string _Patient_Name, uint8 _Patient_Age,string _Patient_Address);
-    event Patient_Removed(address _address);
+    event Patient_Added(address indexed _address, uint256 _Patient_ID, string _Patient_Name, uint8 _Patient_Age, string _Patient_Address);
+    event Patient_Modified(address indexed _address, string _Patient_Name, uint8 _Patient_Age, string _Patient_Address);
+    event Patient_Removed(address indexed _address);
 
     struct Patient {
-        address Patient_Account;
-        uint    Patient_ID;
-        string  Patient_Name;
-        uint8   Patient_Age;
-        string  Patient_Address;
+        address Patient_Account; // 20 bytes
+        uint8 Patient_Age;       // 1 byte
+        uint32 Patient_ID;      // 4 bytes - total 25 bytes, fits in 1 slot
+        string Patient_Name;
+        string Patient_Address;
     }
 
-    mapping (address => Patient) patients;
+    mapping(address => Patient) patients;
 
-    function Add_Patient(address _address,string memory _Patient_Name, uint8 _Patient_Age,string memory _Patient_Address) onlyHospital public {
+    function Add_Patient(address _address, string calldata _Patient_Name, uint8 _Patient_Age, string calldata _Patient_Address) onlyHospital external {
+        if (_address == address(0)) revert InvalidAddress();
+        if (patients[_address].Patient_ID != 0) revert AlreadyRegistered();
+        if (doctors[_address].Doctor_ID != 0) revert AlreadyRegistered();
 
-        require(_address != address(0));
-        require(Patient_Account_IsRegistered[_address] != true);
-        require(Doctor_Account_IsRegistered[_address] != true);
-        Patient_Account_IsRegistered[_address] = true;
+        uint32 newPatientId;
+        unchecked {
+            newPatientId = uint32(++Patient_Id);
+            ++NumberOfPatients;
+        }
 
-        Patient storage patient  = patients[_address];
+        Patient storage patient = patients[_address];
         patient.Patient_Account = _address;
-        Patient_Id++;
-        patient.Patient_ID      = Patient_Id;
-        patient.Patient_Name    = _Patient_Name;
-        patient.Patient_Age     = _Patient_Age;
+        patient.Patient_ID = newPatientId;
+        patient.Patient_Name = _Patient_Name;
+        patient.Patient_Age = _Patient_Age;
         patient.Patient_Address = _Patient_Address;
 
-        NumberOfPatients++;
-
-        emit Patient_Added(_address, Patient_Id,_Patient_Name,_Patient_Age,_Patient_Address);
-
+        emit Patient_Added(_address, newPatientId, _Patient_Name, _Patient_Age, _Patient_Address);
     }
 
-    function Modify_Patient(address _address,string memory _Patient_Name, uint8 _Patient_Age,string memory _Patient_Address) onlyHospital public {
+    function Modify_Patient(address _address, string calldata _Patient_Name, uint8 _Patient_Age, string calldata _Patient_Address) onlyHospital external {
+        if (patients[_address].Patient_ID == 0) revert NotRegistered();
 
-        require(Patient_Account_IsRegistered[_address] == true);
+        Patient storage patient = patients[_address];
+        patient.Patient_Name = _Patient_Name;
+        patient.Patient_Age = _Patient_Age;
+        patient.Patient_Address = _Patient_Address;
 
-        patients[_address].Patient_Name     = _Patient_Name;
-        patients[_address].Patient_Age      = _Patient_Age;
-        patients[_address].Patient_Address  = _Patient_Address;
-
-        emit Patient_Modified(_address,_Patient_Name,_Patient_Age,_Patient_Address);
-
+        emit Patient_Modified(_address, _Patient_Name, _Patient_Age, _Patient_Address);
     }
 
-    function Remove_Patient(address _address) onlyHospital public {
+    function Remove_Patient(address _address) onlyHospital external {
+        if (patients[_address].Patient_ID == 0) revert NotRegistered();
 
-        require(Patient_Account_IsRegistered[_address] == true);
-
-        Patient_Account_IsRegistered[_address] = false;
         delete patients[_address];
-        NumberOfPatients--;
+        unchecked {
+            --NumberOfPatients;
+        }
         emit Patient_Removed(_address);
     }
 
-    function Get_Patient(address _address) view public returns (address, uint, string memory, uint8, string memory) {
+    function Get_Patient(address _address) view external returns (address, uint256, string memory, uint8, string memory) {
+        if (patients[_address].Patient_ID == 0) revert NotRegistered();
+        if (!((msg.sender == Hospital) || (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_address]) || (msg.sender == _address))) {
+            revert Unauthorized();
+        }
 
-        require(Patient_Account_IsRegistered[_address]);
-        require((msg.sender == Hospital)||(listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_address]==true)|| (msg.sender == _address));
-
-        return (patients[_address].Patient_Account,patients[_address].Patient_ID, patients[_address].Patient_Name, patients[_address].Patient_Age, patients[_address].Patient_Address);
+        Patient storage patient = patients[_address];
+        return (patient.Patient_Account, uint256(patient.Patient_ID), patient.Patient_Name, patient.Patient_Age, patient.Patient_Address);
     }
 
     // Doctor Register Smart Contract
+    uint128 public NumberOfDoctors;
+    uint128 public Doctor_Id;
 
-    uint    public NumberOfDoctors;
-    mapping (address => bool) public Doctor_Account_IsRegistered;
-    uint    public Doctor_Id;
-
-    event Doctor_Added(address _address,uint _Doctor_ID,string _Doctor_Name, uint8 _Doctor_Age,string _Doctor_Address);
-    event Doctor_Modified(address _address,string _Doctor_Name, uint8 _Doctor_Age,string _Doctor_Address);
-    event Doctor_Removed(address _address);
+    event Doctor_Added(address indexed _address, uint256 _Doctor_ID, string _Doctor_Name, uint8 _Doctor_Age, string _Doctor_Address);
+    event Doctor_Modified(address indexed _address, string _Doctor_Name, uint8 _Doctor_Age, string _Doctor_Address);
+    event Doctor_Removed(address indexed _address);
 
     struct Doctor {
-        address Doctor_Account;
-        uint    Doctor_ID;
-        string  Doctor_Name;
-        uint8   Doctor_Age;
-        string  Doctor_Address;
+        address Doctor_Account; // 20 bytes
+        uint8 Doctor_Age;       // 1 byte
+        uint32 Doctor_ID;       // 4 bytes - fits in 1 slot
+        string Doctor_Name;
+        string Doctor_Address;
     }
 
-    mapping (address => Doctor) doctors;
+    mapping(address => Doctor) doctors;
 
-    function Add_Doctor(address _address,string memory _Doctor_Name, uint8 _Doctor_Age,string memory _Doctor_Address) onlyHospital public {
+    function Add_Doctor(address _address, string calldata _Doctor_Name, uint8 _Doctor_Age, string calldata _Doctor_Address) onlyHospital external {
+        if (_address == address(0)) revert InvalidAddress();
+        if (doctors[_address].Doctor_ID != 0) revert AlreadyRegistered();
+        if (patients[_address].Patient_ID != 0) revert AlreadyRegistered();
 
-        require(_address != address(0));
-        require(Doctor_Account_IsRegistered[_address] != true);
-        require(Patient_Account_IsRegistered[_address] != true);
-        Doctor_Account_IsRegistered[_address] = true;
+        uint32 newDoctorId;
+        unchecked {
+            newDoctorId = uint32(++Doctor_Id);
+            ++NumberOfDoctors;
+        }
 
-        Doctor storage doctor   = doctors[_address];
-        doctor.Doctor_Account   = _address;
-        Doctor_Id++;
-        doctor.Doctor_ID        = Doctor_Id;
-        doctor.Doctor_Name      = _Doctor_Name;
-        doctor.Doctor_Age       = _Doctor_Age;
-        doctor.Doctor_Address   = _Doctor_Address;
+        Doctor storage doctor = doctors[_address];
+        doctor.Doctor_Account = _address;
+        doctor.Doctor_ID = newDoctorId;
+        doctor.Doctor_Name = _Doctor_Name;
+        doctor.Doctor_Age = _Doctor_Age;
+        doctor.Doctor_Address = _Doctor_Address;
 
-        NumberOfDoctors++;
-        emit Doctor_Added(_address, Doctor_Id,_Doctor_Name,_Doctor_Age,_Doctor_Address);
-
+        emit Doctor_Added(_address, newDoctorId, _Doctor_Name, _Doctor_Age, _Doctor_Address);
     }
 
-    function Modify_Doctor(address _address,string memory _Doctor_Name, uint8 _Doctor_Age,string memory _Doctor_Address) onlyHospital public {
+    function Modify_Doctor(address _address, string calldata _Doctor_Name, uint8 _Doctor_Age, string calldata _Doctor_Address) onlyHospital external {
+        if (doctors[_address].Doctor_ID == 0) revert NotRegistered();
 
-        require(Doctor_Account_IsRegistered[_address] == true);
+        Doctor storage doctor = doctors[_address];
+        doctor.Doctor_Name = _Doctor_Name;
+        doctor.Doctor_Age = _Doctor_Age;
+        doctor.Doctor_Address = _Doctor_Address;
 
-        doctors[_address].Doctor_Name       = _Doctor_Name;
-        doctors[_address].Doctor_Age        = _Doctor_Age;
-        doctors[_address].Doctor_Address    = _Doctor_Address;
-
-        emit Doctor_Modified(_address,_Doctor_Name,_Doctor_Age,_Doctor_Address);
-
+        emit Doctor_Modified(_address, _Doctor_Name, _Doctor_Age, _Doctor_Address);
     }
-    function Remove_Doctor(address _address) onlyHospital public {
 
-        require(Doctor_Account_IsRegistered[_address] == true);
-        Doctor_Account_IsRegistered[_address] = false;
+    function Remove_Doctor(address _address) onlyHospital external {
+        if (doctors[_address].Doctor_ID == 0) revert NotRegistered();
+
         delete doctors[_address];
+        unchecked {
+            --NumberOfDoctors;
+        }
         emit Doctor_Removed(_address);
     }
-    function Get_Doctor(address _address) view public returns (address, uint, string memory, uint8, string memory) {
-        require( Doctor_Account_IsRegistered[_address]);
-        require((msg.sender == Hospital)||(msg.sender == _address));
-        return (doctors[_address].Doctor_Account,doctors[_address].Doctor_ID, doctors[_address].Doctor_Name, doctors[_address].Doctor_Age, doctors[_address].Doctor_Address);
+
+    function Get_Doctor(address _address) view external returns (address, uint256, string memory, uint8, string memory) {
+        if (doctors[_address].Doctor_ID == 0) revert NotRegistered();
+        if (!((msg.sender == Hospital) || (msg.sender == _address))) revert Unauthorized();
+
+        Doctor storage doctor = doctors[_address];
+        return (doctor.Doctor_Account, uint256(doctor.Doctor_ID), doctor.Doctor_Name, doctor.Doctor_Age, doctor.Doctor_Address);
     }
 
     // Authorized Patient for Doctor Smart Contract
-
     struct ListPatientForDoctor {
-        mapping (address => bool)  Patient_Account_IsAuthorized;
+        mapping(address => bool) Patient_Account_IsAuthorized;
     }
-    mapping (address => ListPatientForDoctor) listpatientfordoctors;
+    mapping(address => ListPatientForDoctor) listpatientfordoctors;
 
-    function Authorize_Patient_For_Doctor (address _Doctor_address,address _Patient_address) onlyHospital public {
+    function Authorize_Patient_For_Doctor(address _Doctor_address, address _Patient_address) onlyHospital external {
+        if (patients[_Patient_address].Patient_ID == 0) revert NotRegistered();
+        if (doctors[_Doctor_address].Doctor_ID == 0) revert NotRegistered();
 
-        require(Patient_Account_IsRegistered[_Patient_address] == true);
-        require(Doctor_Account_IsRegistered[_Doctor_address] == true);
-
-        ListPatientForDoctor storage listpatientfordoctor = listpatientfordoctors[_Doctor_address];
-        listpatientfordoctor.Patient_Account_IsAuthorized[_Patient_address] = true;
+        listpatientfordoctors[_Doctor_address].Patient_Account_IsAuthorized[_Patient_address] = true;
     }
 
-    function Cancel_Patient_For_Doctor (address _Doctor_address,address _Patient_address) onlyHospital public {
+    function Cancel_Patient_For_Doctor(address _Doctor_address, address _Patient_address) onlyHospital external {
+        if (patients[_Patient_address].Patient_ID == 0) revert NotRegistered();
+        if (doctors[_Doctor_address].Doctor_ID == 0) revert NotRegistered();
 
-        require(Patient_Account_IsRegistered[_Patient_address] == true);
-        require(Doctor_Account_IsRegistered[_Doctor_address] == true);
-
-        ListPatientForDoctor storage listpatientfordoctor = listpatientfordoctors[_Doctor_address];
-        listpatientfordoctor.Patient_Account_IsAuthorized[_Patient_address] = false;
+        listpatientfordoctors[_Doctor_address].Patient_Account_IsAuthorized[_Patient_address] = false;
     }
 
-    function Get_Authorize_Patient_For_Doctor (address _Doctor_address,address _Patient_address) onlyHospital view public returns(bool) {
+    function Get_Authorize_Patient_For_Doctor(address _Doctor_address, address _Patient_address) onlyHospital view external returns (bool) {
+        if (patients[_Patient_address].Patient_ID == 0) revert NotRegistered();
+        if (doctors[_Doctor_address].Doctor_ID == 0) revert NotRegistered();
 
-        require(Patient_Account_IsRegistered[_Patient_address] == true);
-        require(Doctor_Account_IsRegistered[_Doctor_address] == true);
-
-        return (listpatientfordoctors[_Doctor_address].Patient_Account_IsAuthorized[_Patient_address]);
+        return listpatientfordoctors[_Doctor_address].Patient_Account_IsAuthorized[_Patient_address];
     }
 
     // New: Patient self authorize / revoke doctor (RBAC)
@@ -188,57 +195,53 @@ contract RemoteHealthcareSystem {
     // Patient Monitoring Smart Contract
 
     modifier onlyPatient() {
-        require(Patient_Account_IsRegistered[msg.sender] == true);
+        if (patients[msg.sender].Patient_ID == 0) revert Unauthorized();
         _;
     }
 
     function Authorize_Doctor(address doctor, bool allowed) external onlyPatient {
-        require(Doctor_Account_IsRegistered[doctor] == true, "Doctor not registered");
+        if (doctors[doctor].Doctor_ID == 0) revert NotRegistered();
         listpatientfordoctors[doctor].Patient_Account_IsAuthorized[msg.sender] = allowed;
-        emit Doctor_Access_Updated(msg.sender, doctor, allowed); 
+        emit Doctor_Access_Updated(msg.sender, doctor, allowed);
     }
 
     // helper view: can check
     function IsDoctorAuthorizedForPatient(address doctor, address patient) external view returns (bool) {
-        if (!Doctor_Account_IsRegistered[doctor]) return false;
-        if (!Patient_Account_IsRegistered[patient]) return false;
+        if (doctors[doctor].Doctor_ID == 0) return false;
+        if (patients[patient].Patient_ID == 0) return false;
         return listpatientfordoctors[doctor].Patient_Account_IsAuthorized[patient];
     }
 
-    event Sensor_Data_Collected (address _Patient_Account, string _Parameters);
-    event Alert_Patient_HeartBeat(address _address);
-    event Alert_Patient_BloodPressure(address _address);
-    event Alert_Patient_Temperature(address _address);
+    event Sensor_Data_Collected(address indexed _Patient_Account, string _Parameters);
+    event Alert_Patient_HeartBeat(address indexed _address);
+    event Alert_Patient_BloodPressure(address indexed _address);
+    event Alert_Patient_Temperature(address indexed _address);
 
     struct Patient_Monitoring {
-        address     Patient_Account;
-        string      Parameters; // free-form parameters payload (e.g., JSON or CSV)
+        string Parameters; // free-form parameters payload (e.g., JSON or CSV)
     }
 
-    mapping (address => Patient_Monitoring) patients_monitoring;
+    mapping(address => Patient_Monitoring) patients_monitoring;
 
-    function Set_Parameters(string memory _Parameters) onlyPatient public{
-
-        Patient_Monitoring storage patient_monitoring = patients_monitoring[msg.sender];
-        patient_monitoring.Patient_Account  = msg.sender;
-        patient_monitoring.Parameters       = _Parameters;
-        emit Sensor_Data_Collected (msg.sender, _Parameters);
-
+    function Set_Parameters(string calldata _Parameters) external onlyPatient {
+        patients_monitoring[msg.sender].Parameters = _Parameters;
+        emit Sensor_Data_Collected(msg.sender, _Parameters);
     }
-    
-    function Get_Parameters(address _address) view public returns (string memory) {
 
-        require((msg.sender == Hospital)||(listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_address]==true)|| (msg.sender == _address));
+    function Get_Parameters(address _address) external view returns (string memory) {
+        if (!((msg.sender == Hospital) || (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_address]) || (msg.sender == _address))) {
+            revert Unauthorized();
+        }
 
         return (patients_monitoring[_address].Parameters);
     }
 
     // IPFS-based Storage (Minimal On-chain)
     struct MinimalRecord {
-        address patient;    // owner of record
-        string cid;         // IPFS CID (bafy...)
-        uint256 timestamp;  // client timestamp
-        bytes signature;    // patient signature
+        address patient; // owner of record
+        string cid;      // IPFS CID (bafy...)
+        uint256 timestamp; // client timestamp
+        bytes signature; // patient signature
     }
 
     // Key: Pseudonym (R_i - bytes32), Value: minimal record
@@ -254,7 +257,7 @@ contract RemoteHealthcareSystem {
     }
 
     function _recoverSigner(bytes32 ethSignedHash, bytes memory sig) internal pure returns (address) {
-        require(sig.length == 65, "Invalid signature length");
+        if (sig.length != 65) revert InvalidSignatureLength();
 
         bytes32 r;
         bytes32 s;
@@ -267,36 +270,24 @@ contract RemoteHealthcareSystem {
         }
 
         if (v < 27) v += 27;
-        require(v == 27 || v == 28, "Invalid v");
+        if (v != 27 && v != 28) revert InvalidSignature();
 
         return ecrecover(ethSignedHash, v, r, s);
     }
 
     // Sendata, called by Patient. Not use onlyOwner/onlyHospital.
-    function setParameters(
-        bytes32 _anonId,
-        string calldata _cid,
-        uint256 _timestamp,
-        bytes calldata _signature
-    ) external onlyPatient {
-        require(bytes(_cid).length > 0, "Empty CID");
+    function setParameters(bytes32 _anonId, string calldata _cid, uint256 _timestamp, bytes calldata _signature) external onlyPatient {
+        if (bytes(_cid).length == 0) revert EmptyCID();
 
         // domain separation (chống replay)
         bytes32 cidDigest = keccak256(bytes(_cid));
-        bytes32 msgHash = keccak256(
-            abi.encodePacked(_anonId, cidDigest, _timestamp, address(this), block.chainid)
-        );
+        bytes32 msgHash = keccak256(abi.encodePacked(_anonId, cidDigest, _timestamp, address(this), block.chainid));
 
         bytes32 ethSigned = _toEthSignedMessageHash(msgHash);
         address signer = _recoverSigner(ethSigned, _signature);
-        require(signer == msg.sender, "Bad signature");
+        if (signer != msg.sender) revert InvalidSignature();
 
-        dataRecords[_anonId] = MinimalRecord({
-            patient: msg.sender,
-            cid: _cid,
-            timestamp: _timestamp,
-            signature: _signature
-        });
+        dataRecords[_anonId] = MinimalRecord({patient: msg.sender, cid: _cid, timestamp: _timestamp, signature: _signature});
 
         latestAnonId[msg.sender] = _anonId;
 
@@ -305,35 +296,23 @@ contract RemoteHealthcareSystem {
 
     // Query the most patient data by patient wallet address
     // Return: (anonId, heartBeat, bloodPressure, temperature)
-    function getParameters(address _patientAccount)
-        public
-        view
-        returns (bytes32, string memory, uint256)
-    {
-        require(
-            (msg.sender == Hospital) ||
-            (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_patientAccount] == true) ||
-            (msg.sender == _patientAccount),
-            "Unauthorized access."
-        );
+    function getParameters(address _patientAccount) external view returns (bytes32, string memory, uint256) {
+        if (!((msg.sender == Hospital) || (listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[_patientAccount]) || (msg.sender == _patientAccount))) {
+            revert Unauthorized();
+        }
 
         bytes32 anonId = latestAnonId[_patientAccount];
         MinimalRecord storage r = dataRecords[anonId];
         return (anonId, r.cid, r.timestamp);
     }
 
-
     // function to query history data using AnonID
     // Query historical data using Pseudonym (R_i). Backend Doctor will call this function.
     // RBAC: RBAC is "truly" historically accurate according to anonId.
-    function getDataByAnonId(bytes32 _anonId)
-        public
-        view
-        returns (string memory, uint256, bytes memory)
-    {
+    function getDataByAnonId(bytes32 _anonId) external view returns (string memory, uint256, bytes memory) {
         MinimalRecord storage r = dataRecords[_anonId];
-        require(r.timestamp != 0, "Record not found. No record");
-        
+        if (r.timestamp == 0) revert RecordNotFound();
+
         // Hospital can watch all
         if (msg.sender == Hospital) {
             return (r.cid, r.timestamp, r.signature);
@@ -345,12 +324,9 @@ contract RemoteHealthcareSystem {
         }
 
         // Doctor have to register + was authorized by patient at that time
+        if (doctors[msg.sender].Doctor_ID == 0) revert Unauthorized();
+        if (!listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[r.patient]) revert Unauthorized();
 
-        require(Doctor_Account_IsRegistered[msg.sender] == true, "Only Hospital/Doctor/Patient");
-        require(
-            listpatientfordoctors[msg.sender].Patient_Account_IsAuthorized[r.patient] == true,
-            "Doctor not authorized for this patient."
-        );
         return (r.cid, r.timestamp, r.signature);
     }
 }
